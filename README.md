@@ -1,4 +1,4 @@
-# 🎬 Regal Reactive Pro (RC 1.0)
+# 🎬 Regal Reactive Pro (RC 0.1)
 
 ## 🚀 Quick Start
 1. Search for your theater in the **Sidebar** using Zip, Theater Name, Street/City or 4 digit Theater Code.
@@ -26,4 +26,5 @@ The app uses a **Weighted Hybrid Algorithm**:
 - **Force Refresh:** If Regal blocks the request, manually initiate data.
 
 ## 🖨️ Printing
+
 Enable **Print View** in the sidebar to remove UI elements for a clean paper schedule.
