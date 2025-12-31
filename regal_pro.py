@@ -1,3 +1,5 @@
+#v0.1 RC Stable
+
 import streamlit as st
 import json
 import math
@@ -10,11 +12,7 @@ from curl_cffi import requests as c_requests
 # --- Page Configuration ---
 st.set_page_config(page_title="Regal Reactive Pro", layout="wide")
 
-# --- Initialize Debug State ---
-if "debug_info" not in st.session_state:
-    st.session_state.debug_info = None
-
-# --- CSS for Professional Navigation ---
+# --- CSS for Navigation ---
 st.markdown("""
     <style>
     .stRadio > div[role="radiogroup"] {
@@ -27,18 +25,9 @@ st.markdown("""
 
 # --- Constants & Headers ---
 THEATERS_FILE = "theatre_list.json"
-# Updated to a very recent Chrome fingerprint
 BASE_REQUEST_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
+    "Accept": "*/*", "Accept-Language": "en-US,en;q=0.5", "Referer": "https://www.regmovies.com/",
 }
 
 # --- Utility Functions ---
@@ -61,91 +50,20 @@ def calculate_haversine_distance(lat1, lon1, lat2, lon2):
 def fetch_data(api_url, path_name, max_retries=3):
     headers = BASE_REQUEST_HEADERS.copy()
     headers["Referer"] = f"https://www.regmovies.com/theatres/{path_name}"
-    
     for attempt in range(max_retries):
         try:
             session = c_requests.Session()
-            # Step 1: Establish Session at root
-            session.get("https://www.regmovies.com/", headers=headers, impersonate="chrome120")
-            # Step 2: Establish Theater context
-            session.get(f"https://www.regmovies.com/theatres/{path_name}", headers=headers, impersonate="chrome120")
-            
-            # Step 3: API Call with JSON expectations
-            api_headers = headers.copy()
-            api_headers["Accept"] = "application/json, text/plain, */*"
-            response = session.get(api_url, headers=api_headers, impersonate="chrome120")
-            
-            if response.status_code == 200: 
-                st.session_state.debug_info = None # Clear debug on success
-                return response.json()
-            
-            if response.status_code == 403:
-                # Log debug info to session state so it survives the return
-                st.session_state.debug_info = {
-                    "code": response.status_code,
-                    "headers": dict(response.request.headers),
-                    "body": response.text[:5000]
-                }
-                if attempt < max_retries - 1:
-                    time.sleep(2); continue
-                else:
-                    st.error("Access Denied (403). Regal is blocking the Streamlit Cloud IP.")
-                    return None
-            response.raise_for_status()
-        except Exception as e:
-            st.session_state.debug_info = {"error": str(e)}
-            if attempt < max_retries - 1: time.sleep(1); continue
-            return None
-    return None
-
-# --- Utility Functions ---
-
-@st.cache_data
-def load_theaters():
-    try:
-        with open(THEATERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f).get("theatre_list", [])
-    except Exception as e:
-        st.error(f"Error loading theater list: {e}"); return []
-
-def calculate_haversine_distance(lat1, lon1, lat2, lon2):
-    R = 3958.8 
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi, dlam = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlam/2)**2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-
-def fetch_data(api_url, path_name, max_retries=3):
-    headers = BASE_REQUEST_HEADERS.copy()
-    headers["Referer"] = f"https://www.regmovies.com/theatres/{path_name}"
-    
-    for attempt in range(max_retries):
-        try:
-            session = c_requests.Session()
-            # Step 1: Visit the landing page to establish a "real" session
-            landing_url = f"https://www.regmovies.com/theatres/{path_name}"
-            session.get(landing_url, headers=headers, impersonate="chrome120")
-            
-            # Step 2: Call the API
             response = session.get(api_url, headers=headers, impersonate="chrome120")
-            
-            if response.status_code == 200: 
-                return response.json()
-            
+            if response.status_code == 200: return response.json()
             if response.status_code == 403:
                 if attempt < max_retries - 1:
                     time.sleep(2); continue
                 else:
-                    st.error("Access Denied (403). Regal is blocking the cloud IP.")
-                    with st.sidebar.expander("🛠️ Network Debugger"):
-                        st.write(f"**Status Code:** {response.status_code}")
-                        st.write("**Headers Sent:**", headers)
-                        st.code(response.text[:2000], language="html")
+                    st.error("Access Denied (403). Regal is blocking the request.")
                     return None
             response.raise_for_status()
-        except Exception as e:
+        except:
             if attempt < max_retries - 1: time.sleep(1); continue
-            st.sidebar.error(f"Request Error: {str(e)}")
             return None
     return None
 
@@ -155,30 +73,54 @@ def flatten_data(data):
     attr_map = {a.get('Acronym', '').strip(): a.get('ShortName', '').strip() 
                 for a in raw_attrs_list if a.get('Acronym')}
 
-    movie_meta = {
-        m['MasterMovieCode']: {'rating': m.get('Rating', 'NR'), 'duration': int(m.get('Duration', '0'))} 
-        for m in data.get('movies', [])
-    }
-    shows = data.get("shows", [])
-    if not shows: return [], movie_meta, attr_map
+    # Capture all movie metadata focusing on OpeningDate
+    movie_meta = {}
+    for m in data.get('movies', []):
+        open_date_raw = m.get('RegalOpeningDate')
+        dt_obj = datetime(2099, 12, 31) # Default far-future date for sorting TBDs
+        formatted_date = "TBD"
+        
+        if open_date_raw:
+            try:
+                dt_obj = datetime.strptime(open_date_raw[:10], "%Y-%m-%d")
+                formatted_date = dt_obj.strftime("%b %d, %Y")
+            except: pass
+
+        movie_meta[m['MasterMovieCode']] = {
+            'title': m.get('Title', 'Unknown'),
+            'rating': m.get('Rating', 'NR'), 
+            'duration': int(m.get('Duration', '0')),
+            'opening_date_str': formatted_date,
+            'opening_date_dt': dt_obj
+        }
     
-    for movie in shows[0].get("Film", []):
-        m_code = movie.get('MasterMovieCode')
-        meta = movie_meta.get(m_code, {'rating': 'NR', 'duration': 0})
-        for perf in movie.get("Performances", []):
-            show_dt = datetime.strptime(perf["CalendarShowTime"], "%Y-%m-%dT%H:%M:%S")
-            raw_codes = perf.get("PerformanceAttributes", [])
-            expanded_names = sorted([attr_map.get(c.strip(), c) for c in raw_codes])
-            
-            flat_list.append({
-                "Title": movie['Title'], "Rating": meta['rating'], "Duration": meta['duration'],
-                "Showtime": show_dt, "Auditorium": str(perf.get("Auditorium", "?")),
-                "ScreenType": perf.get("PerformanceGroup") or "2D",
-                "Attributes": ", ".join(expanded_names),
-                "raw_attrs": set(expanded_names),
-                "master_code": m_code
-            })
-    return flat_list, movie_meta, attr_map
+    shows = data.get("shows", [])
+    active_movie_codes = set()
+    
+    if shows:
+        for movie in shows[0].get("Film", []):
+            m_code = movie.get('MasterMovieCode')
+            active_movie_codes.add(m_code)
+            meta = movie_meta.get(m_code, {'rating': 'NR', 'duration': 0})
+            for perf in movie.get("Performances", []):
+                show_dt = datetime.strptime(perf["CalendarShowTime"], "%Y-%m-%dT%H:%M:%S")
+                raw_codes = perf.get("PerformanceAttributes", [])
+                expanded_names = sorted([attr_map.get(c.strip(), c) for c in raw_codes])
+                
+                flat_list.append({
+                    "Title": movie['Title'], "Rating": meta['rating'], "Duration": meta['duration'],
+                    "Showtime": show_dt, "Auditorium": str(perf.get("Auditorium", "?")),
+                    "ScreenType": perf.get("PerformanceGroup") or "2D",
+                    "Attributes": ", ".join(expanded_names),
+                    "raw_attrs": set(expanded_names),
+                    "master_code": m_code
+                })
+                
+    # Filter for movies NOT playing on selected date and sort by date
+    future_movies = [meta for code, meta in movie_meta.items() if code not in active_movie_codes]
+    future_movies.sort(key=lambda x: x['opening_date_dt'])
+    
+    return flat_list, movie_meta, attr_map, future_movies
 
 def get_attr_diff_html(screening_attrs, common_attrs):
     s_set = set([a.strip() for a in screening_attrs.split(",") if a.strip()])
@@ -259,22 +201,15 @@ url_t_code = st.query_params.get("theater")
 
 st.sidebar.header("📍 Find Theater")
 search_mode = st.sidebar.selectbox("Search By", ["Zip Code", "Theater Name", "Address/City", "Theater Code"])
+
+# TZ Management
+with st.sidebar.expander("🕒 Timezone Settings", expanded=False):
+    tz_offset = st.number_input("Local Offset from UTC", value=-5, step=1)
+    current_local_time = datetime.utcnow() + timedelta(hours=tz_offset)
+    st.write(f"App Local Time: **{current_local_time.strftime('%I:%M %p')}**")
+
 results = []
 search_performed = False
-
-# --- Persistent Network Debugger at Sidebar Bottom ---
-if st.session_state.debug_info:
-    with st.sidebar.expander("🛠️ Network Debugger", expanded=True):
-        d = st.session_state.debug_info
-        if "error" in d:
-            st.error(f"Request Exception: {d['error']}")
-        else:
-            st.write(f"**Status:** {d['code']}")
-            st.write("**Sent Headers:**")
-            st.json(d['headers'])
-            st.write("**Response Body (Partial):**")
-            st.code(d['body'], language="html")
-# --- SIDEBAR END ---
 
 if search_mode == "Zip Code":
     zip_in = st.sidebar.text_input("Zip Code", placeholder="46201")
@@ -295,8 +230,6 @@ elif search_mode == "Address/City":
 elif search_mode == "Theater Code":
     code_in = st.sidebar.text_input("Theater Code")
     if code_in: search_performed = True; results = [t for t in theaters if code_in == t['item']['theatre_code']]
-
-if search_performed and not results: st.sidebar.warning("No theaters found matching your criteria.")
 
 selected_theater = None
 if url_t_code and not results:
@@ -325,13 +258,14 @@ if selected_theater:
             if data: st.session_state.raw_data, st.session_state.last_fetch_key = data, f_key
 
 if 'raw_data' in st.session_state:
-    flat_data, movie_meta, attr_map = flatten_data(st.session_state.raw_data)
+    flat_data, movie_meta, attr_map, future_movies = flatten_data(st.session_state.raw_data)
     nav_tab = st.radio("Navigation", ["🔎 Theater Explorer", "🗓️ Smart Scheduler"], horizontal=True, label_visibility="collapsed", key="active_nav")
 
     if nav_tab == "🔎 Theater Explorer":
         if print_mode: st.markdown("<style>[data-testid='stSidebar'], [data-testid='stHeader'] {display: none;} .stExpander {border: none !important;}</style>", unsafe_allow_html=True)
         st.subheader("🔎 Theater Explorer")
         st.info(f"Viewing: **{t_item['name']}** on **{q_date.strftime('%A, %b %d')}**")
+        
         with st.expander("🔍 Filters & Sorting", expanded=not print_mode):
             c1, c2, c3, c4 = st.columns(4)
             with c1:
@@ -351,10 +285,12 @@ if 'raw_data' in st.session_state:
                 sort_by = st.selectbox("Sort By", ["Movie Title", "Showtime", "Auditorium"])
                 view_mode = st.selectbox("View Mode", ["Group by Movie", "Group by Auditorium", "Full Schedule"])
 
-        filtered = [s for s in flat_data if (not f_type or s['ScreenType'] in f_type) and (not f_rating or s['Rating'] in f_rating) and (not f_audi or s['Auditorium'] in f_audi) and (not f_attr or set(f_attr).issubset(s['raw_attrs'])) and (not f_times or any(t_ranges[t][0] <= s['Showtime'].hour < t_ranges[t][1] for t in f_times)) and (not f_avail or (s['Showtime'] > datetime.now() if q_date == datetime.today().date() else True))]
+        filtered = [s for s in flat_data if (not f_type or s['ScreenType'] in f_type) and (not f_rating or s['Rating'] in f_rating) and (not f_audi or s['Auditorium'] in f_audi) and (not f_attr or set(f_attr).issubset(s['raw_attrs'])) and (not f_times or any(t_ranges[t][0] <= s['Showtime'].hour < t_ranges[t][1] for t in f_times)) and (not f_avail or (s['Showtime'] > current_local_time if q_date == current_local_time.date() else True))]
+        
         if sort_by == "Movie Title": filtered.sort(key=lambda x: (x['Title'], x['Showtime']))
         elif sort_by == "Showtime": filtered.sort(key=lambda x: (x['Showtime'], x['Title']))
         elif sort_by == "Auditorium": filtered.sort(key=lambda x: (int(x['Auditorium']) if x['Auditorium'].isdigit() else 999, x['Showtime']))
+        
         st.write(f"Showing **{len(set(s['Title'] for s in filtered))}** movies and **{len(filtered)}** screenings.")
 
         if view_mode == "Full Schedule":
@@ -371,7 +307,7 @@ if 'raw_data' in st.session_state:
                     for s in sorted([s for s in filtered if s['Auditorium'] == audi], key=lambda x: x['Showtime']):
                         col_t, col_info = st.columns([1, 5])
                         col_t.code(s['Showtime'].strftime('%I:%M %p')); col_info.markdown(f"**{s['Title']}** ({s['ScreenType']}) — {s['Duration']}m")
-        else:
+        else: # Group by Movie
             for title in list(dict.fromkeys([s['Title'] for s in filtered])):
                 m_shows = [s for s in filtered if s['Title'] == title]
                 with st.expander(f"🍿 {title} ({m_shows[0]['Rating']}) — {m_shows[0]['Duration']} min", expanded=True):
@@ -381,6 +317,18 @@ if 'raw_data' in st.session_state:
                         st.markdown(f'<div style="background-color: #f0f2f6; padding: 4px 12px; border-radius: 4px; border-left: 4px solid #ff4b4b; margin-bottom: 6px;"><span style="font-weight: bold;">{mt}</span> <span style="color: grey; font-size: 0.85em; font-weight: normal; margin-left: 10px;">({", ".join(sorted(common)) if common else ""})</span></div>', unsafe_allow_html=True)
                         row = [f"**{s['Showtime'].strftime('%I:%M %p')}** (Audi {s['Auditorium']}){get_attr_diff_html(s['Attributes'], common)}" for s in ts]
                         st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{' | '.join(row)}", unsafe_allow_html=True)
+
+        if future_movies:
+            st.markdown("---")
+            st.subheader("📅 Other Upcoming Titles")
+            st.caption("Sorted by Opening Date")
+            cols = st.columns(3)
+            for i, f_movie in enumerate(future_movies):
+                with cols[i % 3]:
+                    with st.container(border=True):
+                        st.markdown(f"**{f_movie['title']}** ({f_movie['rating']})")
+                        st.markdown(f"<small style='color:red'>Opening: {f_movie['opening_date_str']}</small>", unsafe_allow_html=True)
+                        st.caption(f"{f_movie['duration']} min")
 
     elif nav_tab == "🗓️ Smart Scheduler":
         st.subheader("🗓️ Smart Scheduler")
@@ -435,19 +383,15 @@ if 'raw_data' in st.session_state:
                     
                     final_options = []
                     seen_ids = set()
-                    
                     for entry in top_priority[:2]:
                         final_options.append((entry, "Priority Match"))
                         seen_ids.add(entry['id'])
-                    
                     max_possible_count = top_count[0]['count']
                     p1_count = top_priority[0]['count']
-                    
                     if max_possible_count >= p1_count and top_count[0]['id'] not in seen_ids:
                         final_options.append((top_count[0], "Movie Marathon (Max Count)"))
                     else:
-                        if len(top_priority) > 2:
-                            final_options.append((top_priority[2], "Priority Match"))
+                        if len(top_priority) > 2: final_options.append((top_priority[2], "Priority Match"))
 
                     for i, (entry, label) in enumerate(final_options):
                         path, count = entry['path'], entry['count']
@@ -461,4 +405,3 @@ if 'raw_data' in st.session_state:
                                     report = get_conflict_report(path, missing, flat_data, params)
                                     for line in report: st.write(line)
 else: st.info("Search for a theater in the sidebar to begin.")
-
