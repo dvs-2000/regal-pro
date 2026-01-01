@@ -37,8 +37,19 @@ st.markdown("""
 # --- Constants & Headers ---
 THEATERS_FILE = get_resource_path("theatre_list.json")
 BASE_REQUEST_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
-    "Accept": "*/*", "Accept-Language": "en-US,en;q=0.5", "Referer": "https://www.regmovies.com/",
+    "Host": "www.regmovies.com",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "upgrade-insecure-requests": "1",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "sec-fetch-site": "none",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-user": "?1",
+    "sec-fetch-dest": "document",
+    "Accept-Encoding": "gzip, deflate, br, zstd",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 # --- Utility Functions ---
@@ -52,16 +63,16 @@ def get_proxy_health():
         p_user = st.secrets["proxy"]["username"]
         p_pass = st.secrets["proxy"]["password"]
         p_addr = st.secrets["proxy"]["address"]
-        p_port = st.secrets["proxy"]["port"]
+        port = st.session_state.get('current_proxy_port', 10001)
         
         auth_user = f"user-{p_user}-session-healthcheck"
-        proxy_url = f"http://{auth_user}:{p_pass}@{p_addr}:{p_port}"
+        proxy_url = f"http://{auth_user}:{p_pass}@{p_addr}:{port}"
         proxies = {"http": proxy_url, "https": proxy_url}
         
         test_resp = c_requests.get(
             "https://httpbin.org/ip", 
             proxies=proxies, 
-            impersonate="chrome120", 
+            impersonate="chrome124", 
             timeout=10
         )
         
@@ -79,14 +90,39 @@ def load_theaters():
     except Exception as e:
         st.error(f"Error loading theater list: {e}"); return []
 
-def get_offset_from_lon(lon):
-    if lon > -82.5: return -5    # Eastern
-    if lon > -97.5: return -6    # Central
-    if lon > -114.0: return -7   # Mountain
-    if lon > -125.0: return -8   # Pacific
-    if lon < -150.0: return -10  # Hawaii
-    if lon < -140.0: return -9   # Alaska
-    return -5 # Default to EST
+def is_dst(dt):
+    year = dt.year
+    dst_start = datetime(year, 3, 8) + timedelta(days=(6 - datetime(year, 3, 8).weekday()))
+    dst_end = datetime(year, 11, 1) + timedelta(days=(6 - datetime(year, 11, 1).weekday()))
+    return dst_start <= dt.replace(tzinfo=None) < dst_end
+
+def get_offset_from_lon(lon, state=None, target_date=None):
+    if state in ['OH', 'WV', 'VA', 'NC', 'SC', 'GA', 'PA', 'NY', 'NJ', 'MD', 'DE', 'CT', 'RI', 'MA', 'VT', 'NH', 'ME', 'IN']: 
+        base_offset = -5
+    elif state in ['IL', 'WI', 'AL', 'MS', 'LA', 'AR', 'MO', 'IA', 'MN', 'OK']: 
+        base_offset = -6
+    elif state in ['CO', 'ID', 'MT', 'NM', 'UT', 'WY', 'AZ']: 
+        base_offset = -7
+    elif state in ['CA', 'NV', 'OR', 'WA']: 
+        base_offset = -8
+    elif state == 'AK':
+        base_offset = -9
+    elif state == 'HI':
+        base_offset = -10
+    elif state in ['FL','KY','TN','MI']:
+        base_offset = -5 if lon > -86 else -6
+    elif state in ['KS','NE','ND','SD']:
+        base_offset = -6 if lon > -101 else -7
+    elif state == 'TX':
+        base_offset = -6 if lon > -105 else -7
+    else: 
+        base_offset = -5
+    
+    if state not in ['HI', 'AZ'] and target_date:
+        if is_dst(target_date):
+            base_offset += 1
+            
+    return base_offset
 
 def calculate_haversine_distance(lat1, lon1, lat2, lon2):
     R = 3958.8 
@@ -98,48 +134,74 @@ def calculate_haversine_distance(lat1, lon1, lat2, lon2):
 def fetch_data(api_url, path_name, max_retries=3):
 
     proxies = None
+    if "api_session" not in st.session_state:
+        st.session_state.api_session = c_requests.Session()
+        try:
+            st.session_state.api_session.get(
+                "https://www.regmovies.com/", 
+                headers=BASE_REQUEST_HEADERS, 
+                impersonate="chrome124", 
+                timeout=15
+            )
+            time.sleep(2)
+        except: pass                                                           
+
+    if "current_proxy_port" not in st.session_state:
+        st.session_state.current_proxy_port = 10001
 
     if IS_CLOUD:
         try:
+            if "proxy_session_id" not in st.session_state:
+                st.session_state.proxy_session_id = os.urandom(4).hex()
+
             p_user = st.secrets["proxy"]["username"]
             p_pass = st.secrets["proxy"]["password"]
             p_addr = st.secrets["proxy"]["address"]
-            p_port = st.secrets["proxy"]["port"]
 
-            if "proxy_session_id" not in st.session_state:
-                st.session_state.proxy_session_id = f"regal_pro_{os.urandom(4).hex()}"
-            
             auth_user = f"user-{p_user}-session-{st.session_state.proxy_session_id}"
-            proxy_url = f"http://{auth_user}:{p_pass}@{p_addr}:{p_port}"
+            proxy_url = f"http://{auth_user}:{p_pass}@{p_addr}:{st.session_state.current_proxy_port}"
             proxies = {"http": proxy_url, "https": proxy_url}
-
-            
         except KeyError:
             st.error("Proxy secrets not configured!")
             return None
 
-    headers = BASE_REQUEST_HEADERS.copy()
-    headers["Referer"] = f"https://www.regmovies.com/theatres/{path_name}"
+
+
+    api_headers = BASE_REQUEST_HEADERS.copy()
+    api_headers.update({
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest", # Crucial for Regal AJAX
+        "Referer": f"https://www.regmovies.com/theatres/{path_name}",
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+    })
+    
     for attempt in range(max_retries):
         try:
-            session = c_requests.Session()
-            response = session.get(api_url, 
-                                   headers=headers, 
-                                   impersonate="chrome120", 
-                                   proxies=proxies,
-                                   timeout=30)
+            response = st.session_state.api_session.get(
+                api_url, 
+                headers=api_headers, 
+                impersonate="chrome124", 
+                timeout=30
+            )
             if response.status_code == 200: 
                 return response.json()
             if response.status_code == 403:
+                next_port = 10001 + (st.session_state.current_proxy_port - 10001 + 1) % 10
+                st.session_state.current_port = next_port
+                st.session_state.proxy_session_id = os.urandom(4).hex()
                 if attempt < max_retries - 1:
-                    time.sleep(2)
+                    st.toast("Regal 403 detected. Retrying with longer delay...")
+                    time.sleep(8)
                     continue
                 else:
                     st.error("Access Denied (403). Regal is blocking the request.")
                     return None
             response.raise_for_status()
         except:
-            if attempt < max_retries - 1: time.sleep(1); continue
+            if attempt < max_retries - 1: time.sleep(1)
+            continue
             return None
     return None
 
@@ -308,7 +370,8 @@ if search_mode == "Zip Code":
         z_data = nomi.query_postal_code(zip_in)
 
         if not math.isnan(z_data['latitude']):
-            new_offset = get_offset_from_lon(z_data['longitude'])
+            new_offset = get_offset_from_lon(z_data['longitude'],
+                                             state=z_data.get('state_code'))
             st.session_state.auto_tz_offset = new_offset
             for t in theaters:
                 d = calculate_haversine_distance(z_data['latitude'], z_data['longitude'], t['item']['latitude'], t['item']['longitude'])
@@ -345,9 +408,13 @@ if selected_theater:
     st.query_params["theater"] = t_item['theatre_code']
     q_date = st.sidebar.date_input("Select Date", value=datetime.today())
 
-    t_lon = selected_theater['item'].get('longitude')
+    t_lon = t_item.get('longitude')
+    t_state = t_item.get('state_code')
     if t_lon:
-        st.session_state.auto_tz_offset = get_offset_from_lon(t_lon)
+        new_offset = get_offset_from_lon(t_lon,
+                                         t_state,
+                                         target_date=datetime.combine(q_date, dt_time(0,0)))
+        st.session_state.auto_tz_offset = new_offset
 
     with st.sidebar.expander("⚙️ Advanced Settings", expanded=False):
         st.write("🕒 Timezone Settings")
