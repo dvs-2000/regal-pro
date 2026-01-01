@@ -137,6 +137,7 @@ def fetch_data(api_url, path_name, max_retries=3):
     proxies = None
     if "api_session" not in st.session_state:
         st.session_state.api_session = c_requests.Session()
+        st.session_state.api_session.headers.clear()
         try:
             st.session_state.api_session.get(
                 "https://www.regmovies.com/", 
@@ -173,10 +174,22 @@ def fetch_data(api_url, path_name, max_retries=3):
         "Accept": "application/json, text/plain, */*",
         "X-Requested-With": "XMLHttpRequest", # Crucial for Regal AJAX
         "Referer": f"https://www.regmovies.com/theatres/{path_name}",
+        "Origin": "https://www.regmovies.com",
         "sec-fetch-dest": "empty",
         "sec-fetch-mode": "cors",
         "sec-fetch-site": "same-origin",
     })
+
+    # 🔍 --- TEMPORARY DEBUG LOGGER ---
+    if debug_mode:
+        with st.expander("🛠️ Outgoing Request Log", expanded=False):
+            st.write(f"**Target URL:** `{api_url}`")
+            st.write(f"**Current Port:** `{st.session_state.current_proxy_port}`")
+            st.json({
+                "Session_Headers": dict(st.session_state.api_session.headers),
+                "Request_Headers": api_headers,
+                "Proxy_Used": proxies if proxies else "None (Direct)"
+            })
     
     for attempt in range(max_retries):
         try:
