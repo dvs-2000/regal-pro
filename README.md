@@ -18,7 +18,7 @@ If you want to build or run from source, instructions are at the end of this doc
 	- Select Formats, Specify Earliest Start and Latest End, Minimum Buffer between movies, Maximum Gap between movies and Long Break preference.
 	- Optionally enforce Regal Unlimited 91 min gap between shows Rule.
 	- Optionally enable a Fudge Factor to allow 5 minute overlap between showtimes. This will be used only if scheduler is not otherwise able to create an itinerary.
-	- View Top 3 iteneraries ranked by priority, most movies and least gap. 
+	- View Top 3 itineraries ranked by priority, most movies and least gap. 
 	- Download ICS to import a schedule to your calendar.
 
 ## 🗓️ Scheduling Logic
@@ -59,3 +59,4 @@ Enable **Print View** in the sidebar to remove UI elements for a clean paper sch
 1. Your web browser should automatically open to a new tab at http://localhost:8501.
 2. The Regal Pro interface will appear.
 3. To stop the app: Go back to the Terminal and press Ctrl + C on your keyboard.
+
