@@ -431,6 +431,7 @@ if selected_theater:
         
         st.page_link("https://github.com/riyazusman/regal-pro", label="Source on Github")
     st.sidebar.link_button("Report Bug / Request Feature","https://docs.google.com/forms/d/e/1FAIpQLSce6X3DtCwDJZUjf_Cc4IbJLA7q0Nvk_Grw7lOgyqLtxYIYPQ/viewform?usp=dialog")
+    st.sidebar.link_button("Buy Me a Cofee","https://buymeacoffee.com/riyazusman")
     
     f_key = f"{t_item['theatre_code']}_{q_date.strftime('%m-%d-%Y')}"
     if st.session_state.get('last_fetch_key') != f_key:
